@@ -1,0 +1,222 @@
+networks:
+  redis_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/16
+
+services:
+  nginx:
+    image: nginx:alpine
+    container_name: short-url-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  redis-master:
+    image: redis:8.2-alpine
+    container_name: short-url-redis-master
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_master_data:/data
+    command: redis-server --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}} --replica-announce-ip 172.25.0.10
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      redis_network:
+        ipv4_address: 172.25.0.10
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  redis-replica-1:
+    image: redis:8.2-alpine
+    container_name: short-url-redis-replica-1
+    volumes:
+      - redis_replica_1_data:/data
+    command: redis-server --replicaof 172.25.0.10 6379 --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}} ${REDIS_PASSWORD:+--masterauth ${REDIS_PASSWORD}} --replica-announce-ip 172.25.0.11
+    depends_on:
+      - redis-master
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      redis_network:
+        ipv4_address: 172.25.0.11
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  redis-replica-2:
+    image: redis:8.2-alpine
+    container_name: short-url-redis-replica-2
+    volumes:
+      - redis_replica_2_data:/data
+    command: redis-server --replicaof 172.25.0.10 6379 --appendonly yes ${REDIS_PASSWORD:+--requirepass ${REDIS_PASSWORD}} ${REDIS_PASSWORD:+--masterauth ${REDIS_PASSWORD}} --replica-announce-ip 172.25.0.12
+    depends_on:
+      - redis-master
+    restart: unless-stopped
+    env_file:
+      - .env
+    networks:
+      redis_network:
+        ipv4_address: 172.25.0.12
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  redis-sentinel-1:
+    image: redis:8.2-alpine
+    container_name: short-url-redis-sentinel-1
+    command: sh -c "cp /etc/redis/sentinel.conf /data/sentinel.conf && redis-sentinel /data/sentinel.conf"
+    volumes:
+      - ./sentinel.conf:/etc/redis/sentinel.conf:ro
+      - sentinel_1_data:/data
+    env_file:
+      - .env
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      redis_network:
+        ipv4_address: 172.25.0.21
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "sentinel", "get-master-addr-by-name", "mymaster"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  redis-sentinel-2:
+    image: redis:8.2-alpine
+    container_name: short-url-redis-sentinel-2
+    command: sh -c "cp /etc/redis/sentinel.conf /data/sentinel.conf && redis-sentinel /data/sentinel.conf"
+    volumes:
+      - ./sentinel.conf:/etc/redis/sentinel.conf:ro
+      - sentinel_2_data:/data
+    env_file:
+      - .env
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      redis_network:
+        ipv4_address: 172.25.0.22
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "sentinel", "get-master-addr-by-name", "mymaster"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  redis-sentinel-3:
+    image: redis:8.2-alpine
+    container_name: short-url-redis-sentinel-3
+    command: sh -c "cp /etc/redis/sentinel.conf /data/sentinel.conf && redis-sentinel /data/sentinel.conf"
+    volumes:
+      - ./sentinel.conf:/etc/redis/sentinel.conf:ro
+      - sentinel_3_data:/data
+    env_file:
+      - .env
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      redis_network:
+        ipv4_address: 172.25.0.23
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "sentinel", "get-master-addr-by-name", "mymaster"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  cassandra:
+    image: cassandra:5.0
+    container_name: short-url-cassandra
+    ports:
+      - "${CASSANDRA_PORT:-9042}:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=${CASSANDRA_CLUSTER_NAME:-short-url-cluster}
+      - CASSANDRA_DC=${CASSANDRA_DC:-dc1}
+      - CASSANDRA_ENDPOINT_SNITCH=GossipingPropertyFileSnitch
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # No container_name - allows multiple instances
+    # No ports exposed - only NGINX is exposed to host
+    environment:
+      - REDIS_HOST=redis-master
+      - REDIS_SENTINEL_HOSTS=172.25.0.21:26379,172.25.0.22:26379,172.25.0.23:26379
+      - REDIS_MASTER_NAME=mymaster
+      - CASSANDRA_HOST=cassandra
+    env_file:
+      - .env
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+      redis-sentinel-1:
+        condition: service_healthy
+      redis-sentinel-2:
+        condition: service_healthy
+      redis-sentinel-3:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - redis_network
+      - default
+    deploy:
+      replicas: 3 # Scale to 3 instances by default
+
+volumes:
+  redis_master_data:
+  redis_replica_1_data:
+  redis_replica_2_data:
+  sentinel_1_data:
+  sentinel_2_data:
+  sentinel_3_data:
+  cassandra_data:
