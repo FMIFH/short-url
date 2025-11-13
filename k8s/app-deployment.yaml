@@ -1,0 +1,119 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: short-url-app
+  namespace: short-url
+spec:
+  selector:
+    app: short-url-app
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: short-url-app
+  namespace: short-url
+spec:
+  replicas: 1  # HPA will manage this
+  selector:
+    matchLabels:
+      app: short-url-app
+  template:
+    metadata:
+      labels:
+        app: short-url-app
+    spec:
+      containers:
+      - name: app
+        image: short-url-app:latest  # Build and tag your image
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        env:
+        - name: REDIS_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: REDIS_HOST
+        - name: REDIS_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: REDIS_PORT
+        - name: REDIS_SENTINEL_HOSTS
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: REDIS_SENTINEL_HOSTS
+        - name: REDIS_MASTER_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: REDIS_MASTER_NAME
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: short-url-secret
+              key: REDIS_PASSWORD
+        - name: SALT
+          valueFrom:
+            secretKeyRef:
+              name: short-url-secret
+              key: SALT
+        - name: CASSANDRA_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: CASSANDRA_HOST
+        - name: CASSANDRA_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: CASSANDRA_PORT
+        - name: CASSANDRA_CLUSTER_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: CASSANDRA_CLUSTER_NAME
+        - name: CASSANDRA_DC
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: CASSANDRA_DC
+        - name: CASSANDRA_KEYSPACE
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: CASSANDRA_KEYSPACE
+        - name: URL
+          valueFrom:
+            configMapKeyRef:
+              name: short-url-config
+              key: URL
+        resources:
+          requests:
+            cpu: 250m      # Minimum CPU for pod to start
+            memory: 128Mi   # Minimum memory
+          limits:
+            cpu: 1000m     # Maximum CPU (1 core)
+            memory: 512Mi   # Maximum memory
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3

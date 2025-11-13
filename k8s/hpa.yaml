@@ -1,0 +1,46 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: short-url-app-hpa
+  namespace: short-url
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: short-url-app
+  minReplicas: 1              # Minimum number of pods
+  maxReplicas: 10             # Maximum number of pods
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70  # Scale up when CPU > 70%
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80  # Scale up when memory > 80%
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300  # Wait 5 minutes before scaling down
+      policies:
+      - type: Percent
+        value: 50                      # Scale down by max 50% of current pods
+        periodSeconds: 60               # Every 60 seconds
+      - type: Pods
+        value: 1                        # Or scale down by 1 pod
+        periodSeconds: 60               # Every 60 seconds
+      selectPolicy: Min                 # Choose the most conservative policy
+    scaleUp:
+      stabilizationWindowSeconds: 0     # Scale up immediately
+      policies:
+      - type: Percent
+        value: 100                      # Scale up by max 100% (double)
+        periodSeconds: 15               # Every 15 seconds
+      - type: Pods
+        value: 2                        # Or add 2 pods
+        periodSeconds: 15               # Every 15 seconds
+      selectPolicy: Max                 # Choose the most aggressive policy
