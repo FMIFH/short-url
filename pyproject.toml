@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "short-url"
 version = "0.1.0"
-description = ""
+description = "A high-performance, scalable URL shortening service built with FastAPI, featuring distributed caching with Redis Sentinel, persistent storage with Cassandra, and production-ready deployment options for both Docker Compose and Kubernetes."
 authors = ["Francisco Henriques <48632339+FMIFH@users.noreply.github.com>"]
 readme = "README.md"
 package-mode = false
